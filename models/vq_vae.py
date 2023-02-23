@@ -4,44 +4,52 @@ from torch import nn
 from torch.nn import functional as F
 from .types_ import *
 
+
 class VectorQuantizer(nn.Module):
     """
     Reference:
     [1] https://github.com/deepmind/sonnet/blob/v2/sonnet/src/nets/vqvae.py
     """
+
     def __init__(self,
                  num_embeddings: int,
                  embedding_dim: int,
                  beta: float = 0.25):
         super(VectorQuantizer, self).__init__()
-        self.K = num_embeddings
-        self.D = embedding_dim
+        self.num_embeddings = num_embeddings
+        self.embedding_dim = embedding_dim
         self.beta = beta
 
-        self.embedding = nn.Embedding(self.K, self.D)
-        self.embedding.weight.data.uniform_(-1 / self.K, 1 / self.K)
+        self.embedding = nn.Embedding(self.num_embeddings, self.embedding_dim)
+        self.embedding.weight.embedding_dimata.uniform_(
+            -1 / self.num_embeddings, 1 / self.num_embeddings)
 
     def forward(self, latents: Tensor) -> Tensor:
-        latents = latents.permute(0, 2, 3, 1).contiguous()  # [B x D x H x W] -> [B x H x W x D]
+        # [B x D x H x W] -> [B x H x W x D]
+        latents = latents.permute(0, 2, 3, 1).contiguous()
         latents_shape = latents.shape
-        flat_latents = latents.view(-1, self.D)  # [BHW x D]
+        flat_latents = latents.view(-1, self.embedding_dim)  # [BHW x D]
 
         # Compute L2 distance between latents and embedding weights
         dist = torch.sum(flat_latents ** 2, dim=1, keepdim=True) + \
-               torch.sum(self.embedding.weight ** 2, dim=1) - \
-               2 * torch.matmul(flat_latents, self.embedding.weight.t())  # [BHW x K]
+            torch.sum(self.embedding.weight ** 2, dim=1) - \
+            2 * torch.matmul(flat_latents,
+                             self.embedding.weight.t())  # [BHW x K]
 
         # Get the encoding that has the min distance
         encoding_inds = torch.argmin(dist, dim=1).unsqueeze(1)  # [BHW, 1]
 
         # Convert to one-hot encodings
         device = latents.device
-        encoding_one_hot = torch.zeros(encoding_inds.size(0), self.K, device=device)
+        encoding_one_hot = torch.zeros(
+            encoding_inds.size(0), self.num_embeddings, device=device)
         encoding_one_hot.scatter_(1, encoding_inds, 1)  # [BHW x K]
 
         # Quantize the latents
-        quantized_latents = torch.matmul(encoding_one_hot, self.embedding.weight)  # [BHW, D]
-        quantized_latents = quantized_latents.view(latents_shape)  # [B x H x W x D]
+        quantized_latents = torch.matmul(
+            encoding_one_hot, self.embedding.weight)  # [BHW, D]
+        quantized_latents = quantized_latents.view(
+            latents_shape)  # [B x H x W x D]
 
         # Compute the VQ Losses
         commitment_loss = F.mse_loss(quantized_latents.detach(), latents)
@@ -52,7 +60,8 @@ class VectorQuantizer(nn.Module):
         # Add the residue back to the latents
         quantized_latents = latents + (quantized_latents - latents).detach()
 
-        return quantized_latents.permute(0, 3, 1, 2).contiguous(), vq_loss  # [B x D x H x W]
+        # [B x D x H x W]
+        return vq_loss, quantized_latents.permute(0, 3, 1, 2).contiguous(), encoding_one_hot, encoding_inds
 
 class ResidualLayer(nn.Module):
 
@@ -69,17 +78,18 @@ class ResidualLayer(nn.Module):
     def forward(self, input: Tensor) -> Tensor:
         return input + self.resblock(input)
 
-
 class VQVAE(BaseVAE):
 
-    def __init__(self,
-                 in_channels: int,
-                 embedding_dim: int,
-                 num_embeddings: int,
-                 hidden_dims: List = None,
-                 beta: float = 0.25,
-                 img_size: int = 64,
-                 **kwargs) -> None:
+    def __init__(
+        self,
+        in_channels: int,
+        embedding_dim: int,
+        num_embeddings: int,
+        hidden_dims: List = None,
+        beta: float = 0.25,
+        img_size: int = 64,
+        **kwargs
+    ) -> None:
         super(VQVAE, self).__init__()
 
         self.embedding_dim = embedding_dim
@@ -208,7 +218,7 @@ class VQVAE(BaseVAE):
         loss = recons_loss + vq_loss
         return {'loss': loss,
                 'Reconstruction_Loss': recons_loss,
-                'VQ_Loss':vq_loss}
+                'VQ_Loss': vq_loss}
 
     def sample(self,
                num_samples: int,

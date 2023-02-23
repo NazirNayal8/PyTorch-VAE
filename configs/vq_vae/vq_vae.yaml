@@ -13,6 +13,9 @@ data_params:
   patch_size: 64
   num_workers: 4
 
+wandb:
+  name: no_name
+  project: vq_vae
 
 exp_params:
   LR: 0.005

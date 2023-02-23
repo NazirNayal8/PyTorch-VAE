@@ -4,59 +4,100 @@ import argparse
 import numpy as np
 from pathlib import Path
 from models import *
+from datamodules import DATAMODULES
 from experiment import VAEXperiment
 import torch.backends.cudnn as cudnn
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.utilities.seed import seed_everything
+from pytorch_lightning.loggers.wandb import WandbLogger
+from pytorch_lightning import seed_everything
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from dataset import VAEDataset
 from pytorch_lightning.plugins import DDPPlugin
+from easydict import EasyDict as edict
+from torchinfo import summary
 
 
-parser = argparse.ArgumentParser(description='Generic runner for VAE models')
-parser.add_argument('--config',  '-c',
-                    dest="filename",
-                    metavar='FILE',
-                    help =  'path to the config file',
-                    default='configs/vae.yaml')
+def read_config(filename):
+    with open(filename, 'r') as file:
+        try:
+            config = yaml.safe_load(file)
+        except yaml.YAMLError as exc:
+            print(exc)
 
-args = parser.parse_args()
-with open(args.filename, 'r') as file:
-    try:
-        config = yaml.safe_load(file)
-    except yaml.YAMLError as exc:
-        print(exc)
+    return config
 
 
-tb_logger =  TensorBoardLogger(save_dir=config['logging_params']['save_dir'],
-                               name=config['model_params']['name'],)
+def main(args):
 
-# For reproducibility
-seed_everything(config['exp_params']['manual_seed'], True)
+    # prepare config dict
+    config = read_config(args.filename)
+    config = edict(config)
 
-model = vae_models[config['model_params']['name']](**config['model_params'])
-experiment = VAEXperiment(model,
-                          config['exp_params'])
+    # create logger
+    if config.WANDB.ACTIVATE:
+        logger = WandbLogger(
+            name=config.WANDB.RUN_NAME,
+            project=config.WANDB.PROJECT, 
+            config=config
+        )
+    else:
+        logger = None
 
-data = VAEDataset(**config["data_params"], pin_memory=len(config['trainer_params']['gpus']) != 0)
+    # for reproducibility
+    seed_everything(config.RANDOM_SEED)
 
-data.setup()
-runner = Trainer(logger=tb_logger,
-                 callbacks=[
-                     LearningRateMonitor(),
-                     ModelCheckpoint(save_top_k=2, 
-                                     dirpath =os.path.join(tb_logger.log_dir , "checkpoints"), 
-                                     monitor= "val_loss",
-                                     save_last= True),
-                 ],
-                 strategy=DDPPlugin(find_unused_parameters=False),
-                 **config['trainer_params'])
+    # create lightning module
+    experiment = VAEXperiment(config)
+    print(summary(experiment.model, input_size=(1, 3, 32, 32), depth=10))
+    
+    # define the DataModule
+    datamodule = DATAMODULES[config.DATA.NAME](config)
+
+    # define callbacks
+    callbacks = [
+        LearningRateMonitor(),
+        ModelCheckpoint(
+            save_top_k=2,
+            dirpath=os.path.join(config.CKPT.DIR_PATH, config.DATA.NAME, config.WANDB.RUN_NAME),
+            monitor="val_loss_epoch",
+            mode="max",
+            save_last=True
+        ),
+    ]
+    
+    # define trainer object
+    trainer = Trainer(
+        fast_dev_run=args.dev,
+        accelerator="gpu",
+        devices=-1,
+        # deterministic=True,
+        log_every_n_steps=1,
+        max_epochs=config.SOLVER.MAX_EPOCHS,
+        max_steps=config.SOLVER.MAX_STEPS,
+        logger=logger,
+        callbacks=callbacks
+    )
+
+    # create necessary folders
+    Path(f"{config.WANDB.LOG_DIR}/Samples/{config.WANDB.RUN_NAME}").mkdir(exist_ok=True, parents=True)
+    Path(f"{config.WANDB.LOG_DIR}/Reconstructions/{config.WANDB.RUN_NAME}").mkdir(exist_ok=True, parents=True)
+
+    trainer.fit(experiment, datamodule=datamodule)
 
 
-Path(f"{tb_logger.log_dir}/Samples").mkdir(exist_ok=True, parents=True)
-Path(f"{tb_logger.log_dir}/Reconstructions").mkdir(exist_ok=True, parents=True)
+if __name__ == "__main__":
 
+    parser = argparse.ArgumentParser(
+        description='Generic runner for VAE models')
+    parser.add_argument('--config',  '-c',
+                        dest="filename",
+                        metavar='FILE',
+                        help='path to the config file',
+                        default='configs/vae.yaml')
+    
+    parser.add_argument("--dev", action="store_true", help="Runs in Dev Mode")
 
-print(f"======= Training {config['model_params']['name']} =======")
-runner.fit(experiment, datamodule=data)
+    args = parser.parse_args()
+
+    main(args)
