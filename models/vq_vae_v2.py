@@ -33,37 +33,41 @@ class VectorQuantizerEMA(nn.Module):
         input_shape = inputs.shape
 
         # Flatten input
-        flat_input = inputs.view(-1, self._embedding_dim)
+        flat_input = inputs.view(-1, self._embedding_dim) # [BHW, C]
 
         # Calculate distances
-        distances = (torch.sum(flat_input**2, dim=1, keepdim=True)
-                     + torch.sum(self._embedding.weight**2, dim=1)
-                     - 2 * torch.matmul(flat_input, self._embedding.weight.t()))
+        distances = (torch.sum(flat_input**2, dim=1, keepdim=True) # [BHW, 1]
+                     + torch.sum(self._embedding.weight**2, dim=1) # [K,] K: num of codebooks
+                     - 2 * torch.matmul(flat_input, self._embedding.weight.t())) # [BHW, K]
 
         # Encoding
-        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
-        # print(encoding_indices.shape)
+        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)  # [BHW, 1]
+        
+        # A one hot representation of indices 
         encodings = torch.zeros(
-            encoding_indices.shape[0], self._num_embeddings, device=inputs.device)
+            encoding_indices.shape[0], self._num_embeddings, device=inputs.device)  # [BHW, K]
         encodings.scatter_(1, encoding_indices, 1)
         # print(encodings.shape)
 
         # Quantize and unflatten
         quantized = torch.matmul(
-            encodings, self._embedding.weight).view(input_shape)
+            encodings, self._embedding.weight).view(input_shape)  # [BHW, K] x [K, C] -> [BHW, C] -> [B, H, W, C]
 
         # Use EMA to update the embedding vectors
         if self.training:
+            # for each codebook entry, count how many of the BHW entries it was closest to
+            # learn this count in a moving average manner
             self._ema_cluster_size = self._ema_cluster_size * self._decay + \
-                (1 - self._decay) * torch.sum(encodings, 0)
+                (1 - self._decay) * torch.sum(encodings, 0)  # [K]
 
             # Laplace smoothing of the cluster size
+            # This is used to avoid 0 cluster sizes.
             n = torch.sum(self._ema_cluster_size.data)
             self._ema_cluster_size = (
                 (self._ema_cluster_size + self._epsilon)
-                / (n + self._num_embeddings * self._epsilon) * n)
+                / (n + self._num_embeddings * self._epsilon) * n)  # [K]
 
-            dw = torch.matmul(encodings.t(), flat_input)
+            dw = torch.matmul(encodings.t(), flat_input)  # [K, BHW] x [BHW, C] -> [K, C]
             self._ema_w = nn.Parameter(
                 self._ema_w * self._decay + (1 - self._decay) * dw)
 

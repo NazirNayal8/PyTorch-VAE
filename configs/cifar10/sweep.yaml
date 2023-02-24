@@ -1,0 +1,14 @@
+program: multi_run.py
+project: vq_vae
+method: grid
+metric: 
+  name: val_loss_epoch
+  goal: maximize
+parameters:
+  MODEL:
+    parameters:
+      NUM_EMBEDDINGS:
+        values: [256, 128, 64, 32, 512]
+      EMBEDDING_DIM:
+        values: [32, 16, 8]
+    
