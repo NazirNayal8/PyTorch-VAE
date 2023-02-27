@@ -8,7 +8,7 @@ parameters:
   MODEL:
     parameters:
       NUM_EMBEDDINGS:
-        values: [256, 128, 64, 32, 512]
+        values: [16, 8, 4]
       EMBEDDING_DIM:
-        values: [32, 16, 8]
+        values: [32, 16, 8, 4]
     

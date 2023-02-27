@@ -41,7 +41,7 @@ WANDB:
   LOG_DIR: logs/codebook/
 
 CKPT:
-  DIR_PATH: model_logs/codebook/
+  DIR_PATH: model_logs/codebook_2/
   EVERY_N_EPOCHS: 1
 
 RANDOM_SEED: 2000

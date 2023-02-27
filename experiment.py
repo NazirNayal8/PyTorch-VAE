@@ -51,18 +51,18 @@ class VAEXperiment(pl.LightningModule):
 
         x, y = batch
 
-        recons, vq_loss, perplexity = self.forward(x, y=y)
+        outputs = self.forward(x, y=y)
         
         train_loss = self.model.loss_function(
-            recons=recons,
+            recons=outputs.recon,
             x=x,
-            vq_loss=vq_loss,
+            vq_loss=outputs.vq_loss,
             M_N=self.hparams.SOLVER.KLD_WEIGHT,
             optimizer_idx=optimizer_idx,
             batch_idx=batch_idx
         )
 
-        self.log("train/perplexity", perplexity.item(), on_epoch=True, on_step=True)
+        self.log("train/perplexity", outputs.perplexity.item(), on_epoch=True, on_step=True)
     
         for k, v in train_loss.items():
             self.log(f"train/{k}", v.item(), on_epoch=True,
@@ -74,17 +74,18 @@ class VAEXperiment(pl.LightningModule):
 
         x, y = batch
 
-        recons, vq_loss, perplexity = self.forward(x, y=y)
+        outputs = self.forward(x, y=y)
+
         val_loss = self.model.loss_function(
-            recons=recons,
+            recons=outputs.recon,
             x=x,
-            vq_loss=vq_loss,
+            vq_loss=outputs.vq_loss,
             M_N=self.hparams.SOLVER.KLD_WEIGHT,
             optimizer_idx=optimizer_idx,
             batch_idx=batch_idx
         )
 
-        self.log("val_perplexity", perplexity.item(), on_epoch=True, on_step=True)
+        self.log("val_perplexity", outputs.perplexity.item(), on_epoch=True, on_step=True)
 
         for k, v in val_loss.items():
             self.log(f"val_{k}", v.item(), on_epoch=True,

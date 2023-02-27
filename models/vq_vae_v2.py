@@ -84,7 +84,14 @@ class VectorQuantizerEMA(nn.Module):
         perplexity = torch.exp(-torch.sum(avg_probs * torch.log(avg_probs + 1e-10)))
 
         # convert quantized from BHWC -> BCHW
-        return loss, quantized.permute(0, 3, 1, 2).contiguous(), encodings, encoding_indices, perplexity
+        return edict(
+            loss=loss, 
+            quantized=quantized.permute(0, 3, 1, 2).contiguous(), 
+            encodings=encodings, 
+            encoding_indices=encoding_indices, 
+            perplexity=perplexity,
+            distances=distances
+        )
 
 
 class ResidualLayer(nn.Module):
@@ -262,21 +269,26 @@ class VQVAE_V2(BaseVAE):
         result = self.decoder(z)
         return result
 
-    def forward(self, x: Tensor, return_enc=False, **kwargs) -> List[Tensor]:
+    def forward(self, x: Tensor, **kwargs) -> List[Tensor]:
         
         encoding = self.encode(x)[0]
-        # print("Encoder Output Shape Shape", encoding.shape)
 
         encoding = self.pre_vq_conv(encoding)
+        
+        vq_outputs = self.vq(encoding)
 
-        vq_loss, quantized, encodings, encoding_indices, perplexity = self.vq(encoding)
+        recon = self.decode(vq_outputs.quantized)
 
-        recon = self.decode(quantized)
-
-        if return_enc:
-            return recon, vq_loss, perplexity, encodings, encoding_indices
-
-        return recon, vq_loss, perplexity
+        return edict(
+            x=x,
+            recon=recon,
+            vq_loss=vq_outputs.loss,
+            quantized=vq_outputs.quantized,
+            perplexity=vq_outputs.perplexity,
+            encodings=vq_outputs.encodings,
+            encoding_indices=vq_outputs.encoding_indices,
+            distances=vq_outputs.distances
+        )
 
     def loss_function(
         self,
@@ -306,4 +318,4 @@ class VQVAE_V2(BaseVAE):
 
     def generate(self, x: Tensor, **kwargs) -> Tensor:
 
-        return self.forward(x)[0]
+        return self.forward(x).recon
