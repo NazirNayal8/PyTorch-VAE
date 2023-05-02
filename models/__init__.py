@@ -23,6 +23,8 @@ from .vq_vae_v2 import *
 from .betatc_vae import *
 from .dip_vae import *
 
+from .pixel_cnn import GatedPixelCNN
+
 
 # Aliases
 VAE = VanillaVAE
@@ -54,3 +56,7 @@ vae_models = {
     'ConditionalVAE': ConditionalVAE,
     'CategoricalVAE': CategoricalVAE
 }
+
+PRIORS = edict(
+    PixelCNN=GatedPixelCNN
+)

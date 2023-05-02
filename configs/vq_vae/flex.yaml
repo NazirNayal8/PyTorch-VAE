@@ -1,0 +1,47 @@
+MODEL:
+  NAME: 'VQVAE_V2'
+  IN_CHANNELS: 3
+  EMBEDDING_DIM: 64
+  NUM_EMBEDDINGS: 512
+  IMG_SIZE: 64
+  BETA: 0.25
+  USE_EMA: True
+  DECAY: 0.99
+  HIDDEN_DIM: [128, 128, 128]
+  NUM_RESIDUAL_LAYERS: 2
+  RESIDUAL_HIDDEN_DIM: 32
+  DATA_VARIANCE: 0.06328
+
+DATA:
+  ROOT: "/home/nazir/datasets"
+  NAME: CIFAR10
+  NORMALIZATION: custom
+  MEAN: [0.5, 0.5, 0.5]
+  STD: [1.0, 1.0, 1.0]
+  NUM_CLASSES: 10
+  CLS_SUBSET: null
+  
+SOLVER:  
+  BATCH_SIZE: 256
+  PATCH_SIZE: 256
+  NUM_WORKERS: 20
+  LR: 0.001
+  WEIGHT_DECAY: 0.0
+  SCHEDULER_GAMMA: 0.0
+  KLD_WEIGHT: 0.00025
+  MAX_EPOCHS: 40 # takes priority over steps
+  MAX_STEPS: 15000
+  PRECISION: 32 # strictly either [16, 32]
+
+WANDB:
+  ACTIVATE: True
+  RUN_NAME: flex_4x4_features_512_64_c_all_128
+  PROJECT: vq_vae
+  NUM_LOG_IMGS: 36
+  LOG_DIR: logs/codebook/
+
+CKPT:
+  DIR_PATH: model_logs/bottleneck/
+  EVERY_N_EPOCHS: 1
+
+RANDOM_SEED: 2000

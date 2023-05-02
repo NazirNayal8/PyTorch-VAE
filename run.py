@@ -35,7 +35,7 @@ def main(args):
     config = edict(config)
 
     # create logger
-    if config.WANDB.ACTIVATE:
+    if config.WANDB.ACTIVATE and not args.dev:
         logger = WandbLogger(
             name=config.WANDB.RUN_NAME,
             project=config.WANDB.PROJECT, 
@@ -71,7 +71,7 @@ def main(args):
         fast_dev_run=args.dev,
         accelerator="gpu",
         devices=-1,
-        log_every_n_steps=1,
+        log_every_n_steps=50,
         max_epochs=config.SOLVER.MAX_EPOCHS,
         max_steps=config.SOLVER.MAX_STEPS,
         logger=logger,
