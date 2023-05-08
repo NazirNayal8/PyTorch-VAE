@@ -1,3 +1,7 @@
+"""
+Adapted from https://github.com/yashgarg98/VQ-VAE/blob/master/models/pixel_cnn.py
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -20,7 +24,7 @@ class GatedActivation(nn.Module):
 
     def forward(self, x):
         x, y = x.chunk(2, dim=1)
-        return F.tanh(x) * F.sigmoid(y)
+        return torch.tanh(x) * torch.sigmoid(y)
 
 
 class GatedMaskedConv2d(nn.Module):
@@ -41,16 +45,16 @@ class GatedMaskedConv2d(nn.Module):
             kernel_shp, 1, padding_shp
         )
 
-        self.vert_to_horiz = nn.Conv2d(2 * dim, 2 * dim, 1)
+        self.vert_to_horiz = nn.Conv2d(2 * dim, 2 * dim, 1) 
 
         kernel_shp = (1, kernel // 2 + 1)
-        padding_shp = (0, kernel // 2)
+        padding_shp = (0, kernel // 2)  
         self.horiz_stack = nn.Conv2d(
             dim, dim * 2,
             kernel_shp, 1, padding_shp
         )
 
-        self.horiz_resid = nn.Conv2d(dim, dim, 1)
+        self.horiz_resid = nn.Conv2d(dim, dim, 1)  
 
         self.gate = GatedActivation()
 
@@ -80,6 +84,19 @@ class GatedMaskedConv2d(nn.Module):
         return out_v, out_h
     
 class GatedPixelCNN(nn.Module):
+    """
+    Parameters:
+    -----------
+    input_dim: int
+        Number of input channels
+    dim: int  
+        Number of channels of intermediate layers
+    n_layers: int
+        Number of layers in the PixelCNN
+    n_classes: int
+        Number of classes in the dataset
+    """
+
     def __init__(self, input_dim=256, dim=64, n_layers=15, n_classes=10):
         super().__init__()
         self.dim = dim
@@ -112,9 +129,9 @@ class GatedPixelCNN(nn.Module):
 
     def forward(self, x, label):
         shp = x.size() + (-1, )
-        # print(shp)
+        
         x = self.embedding(x.view(-1)).view(shp)  # (B, H, W, C)
-        # print(x.shape)
+        
         x = x.permute(0, 3, 1, 2)  # (B, C, W, H)
 
         x_v, x_h = (x, x)

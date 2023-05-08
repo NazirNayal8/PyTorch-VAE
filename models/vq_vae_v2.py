@@ -2,7 +2,7 @@ import torch
 from models import BaseVAE
 from torch import nn
 from torch.nn import functional as F
-from .types_ import *
+from .vae.types_ import *
 from .vq_vae import VectorQuantizer
 from easydict import EasyDict as edict
 

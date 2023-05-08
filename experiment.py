@@ -5,7 +5,7 @@ import torch
 import inspect
 from torch import optim
 from models import BaseVAE
-from models.types_ import *
+from models.vae.types_ import * 
 from utils import data_loader
 import pytorch_lightning as pl
 from torchvision import transforms
@@ -13,7 +13,7 @@ import torchvision.utils as vutils
 from torchvision.datasets import CelebA
 from torch.utils.data import DataLoader
 from models import *
-
+from easydict import EasyDict as edict
 
 def create_model(config):
 
@@ -160,37 +160,3 @@ class VAEXperiment(pl.LightningModule):
             )
     
         return optimizer
-        
-        optims.append(optimizer)
-        # Check if more than 1 optimizer is required (Used for adversarial training)
-        try:
-            if self.hparams.SOLVER.LR_2 is not None:
-                optimizer2 = optim.Adam(
-                    getattr(self.model, self.hparams.MODEL.ADVERSARIAL_COMPONENT).parameters(),
-                    lr=self.hparams.SOLVER.LR_2
-                )
-                optims.append(optimizer2)
-        except:
-            pass
-
-        try:
-            if self.hparams.SOLVER.SCHEDULER_GAMMA is not None:
-                scheduler = optim.lr_scheduler.ExponentialLR(
-                    optims[0],
-                    gamma=self.hparams.SOLVER.SCHEDULER_GAMMA
-                )
-                scheds.append(scheduler)
-
-                # Check if another scheduler is required for the second optimizer
-                try:
-                    if self.hparams.SOLVER.SCHEDULER_GAMMA_2 is not None:
-                        scheduler2 = optim.lr_scheduler.ExponentialLR(
-                            optims[1],
-                            gamma=self.hparams.SOLVER.SCHEDULER_GAMMA_2
-                        )
-                        scheds.append(scheduler2)
-                except:
-                    pass
-                return optims, scheds
-        except:
-            return optims

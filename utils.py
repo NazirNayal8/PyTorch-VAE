@@ -1,8 +1,14 @@
 import pytorch_lightning as pl
+import yaml
 
+def read_config(filename):
+    with open(filename, 'r') as file:
+        try:
+            config = yaml.safe_load(file)
+        except yaml.YAMLError as exc:
+            print(exc)
 
-## Utils to handle newer PyTorch Lightning changes from version 0.6
-## ==================================================================================================== ##
+    return config
 
 
 def data_loader(fn):
