@@ -30,6 +30,8 @@ parser = argparse.ArgumentParser(description="Yo it's Prior Analyzer")
 
 parser.add_argument('--models_folder', type=str,
                     help="path to folder containing at least 1 folder. Inside each is a lightning ckpt")
+parser.add_argument('--model_name', type=str, default=None,
+                    help="name of a specific model to be processed. Must be a folder name inside models_folder")
 parser.add_argument('--ckpt_name', type=str, default='last',
                     help="name of lightning ckpt file")
 
@@ -154,7 +156,7 @@ def process_list_to_dict(lst):
 
     result = edict()
     for k, v in result_tmp.items():
-        result[k] = torch.cat(v, dim=0)#[:args.max_samples]
+        result[k] = torch.cat(v, dim=0)  # [:args.max_samples]
 
     return result
 
@@ -183,13 +185,15 @@ def extract_outputs(model, dataset):
 
     return all_outputs
 
+
 def plot_log_likelihood_densities(prior, id_dataset, ood_datasets, output_folder):
 
-    id_likelihoods = compute_dataset_log_likelihood(prior, id_dataset.data, max_samples=args.max_samples)
+    id_likelihoods = compute_dataset_log_likelihood(
+        prior, id_dataset.data, max_samples=args.max_samples)
     ood_likelihoods = [
         compute_dataset_log_likelihood(
-            prior, 
-            ood_dataset.data, 
+            prior,
+            ood_dataset.data,
             max_samples=args.max_samples,
             arbitrary_cls=0
         ) for ood_dataset in ood_datasets
@@ -199,18 +203,24 @@ def plot_log_likelihood_densities(prior, id_dataset, ood_datasets, output_folder
     plt.figure(figsize=(10, 5))
     plt.hist(id_likelihoods, bins=100, alpha=0.5, label=id_dataset.name)
     for i in range(len(ood_datasets)):
-        plt.hist(ood_likelihoods[i], bins=100, alpha=0.5, label=ood_datasets[i].name)
+        plt.hist(ood_likelihoods[i], bins=100,
+                 alpha=0.5, label=ood_datasets[i].name)
     plt.xlabel('log-likelihood')
     plt.ylabel('Density')
     plt.legend()
     plt.title("Log-likelihood densities")
     plt.savefig(os.path.join(output_folder, "log_likelihood_densities.png"))
 
+
 def main():
 
     assert os.path.exists(
         args.models_folder), "Models folder not here y u liar"
     model_names = os.listdir(args.models_folder)
+
+    # if a single model name is provided we process only that one
+    if args.model_name is not None:
+        model_names = [args.model_name]
 
     # setup datasets
     id_dataset = edict(
@@ -245,19 +255,11 @@ def main():
         model = prior.vq_vae
         # create paths to store visualizations
         output_folder = os.path.join(args.output_folder, model_name)
-        Path(output_folder).mkdir(exist_ok=True, parents=True)  
+        Path(output_folder).mkdir(exist_ok=True, parents=True)
 
-        # # extract outputs from ID dataset:
-        # id_dataset.outputs = extract_outputs(model, id_dataset)
+        plot_log_likelihood_densities(
+            prior, id_dataset, ood_datasets, output_folder)
 
-        # # extract outputs from OoD Datasets
-        # for ood_dataset in ood_datasets:
-        #     ood_dataset.outputs = extract_outputs(model, ood_dataset)
-
-        # plot log-likelihood densities
-        plot_log_likelihood_densities(prior, id_dataset, ood_datasets, output_folder)
-
-        
 
 if __name__ == "__main__":
     main()
