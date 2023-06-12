@@ -1,8 +1,8 @@
 MODEL:
   NAME: 'PixelCNN'
   INPUT_DIM: 512  # size of codebook
-  DIM: 16
-  N_LAYERS: 1
+  DIM: 32
+  N_LAYERS: 5
   N_CLASSES: 10
 
 SOLVER:
@@ -14,7 +14,7 @@ SOLVER:
   NUM_WORKERS: 20
 
 VQ_VAE: 
-  CKPT_PATH: 'model_logs/codebook_2/CIFAR10/codebook_16_8/last.ckpt'
+  CKPT_PATH: 'model_logs/bottleneck/CIFAR10/flex_4x4_features_512_64_conv_t_after_res/last.ckpt'
 
 DATA:
   ROOT: "/home/nazir/datasets"
@@ -27,7 +27,7 @@ DATA:
 
 WANDB:
   ACTIVATE: True
-  RUN_NAME: pixel_cnn_16_8_1_layer_16_dim
+  RUN_NAME: pixel_cnn_5_layers_32_dim_512_64_flex_4x4_conv_t_after_res
   PROJECT: prior_pixel_cnn
   NUM_LOG_IMGS: 40
   LOG_DIR: logs/prior_pixel_cnn/

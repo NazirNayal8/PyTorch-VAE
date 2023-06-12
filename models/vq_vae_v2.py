@@ -139,6 +139,16 @@ class ResidualStack(nn.Module):
 
 
 class EncoderFlex(nn.Module):
+    """
+    Encoder for VQ-VAE with flexible number of layers
+
+    Args:
+        in_channels (int): Number of input channels
+        hidden_dim (list): List of hidden dimensions
+        num_residual_layers (int): Number of residual layers
+        residual_hidden_dim (int): Number of hidden dimensions for residual layers
+    """
+
     def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim):
         super(EncoderFlex, self).__init__()
 
@@ -180,6 +190,21 @@ class EncoderFlex(nn.Module):
 
 
 class Encoder(nn.Module):
+    """
+    Encoder network for VQ-VAE.
+
+    Args:
+        in_channels: Number of channels in the input tensor.
+        hidden_dim: Number of channels in the hidden activations.
+        num_residual_layers: Number of residual layers in the encoder.
+        residual_hidden_dim: Number of channels in the residual hidden
+            activations.
+
+    Returns:
+        A torch.Tensor of shape [batch_size, hidden_dim, height // 2,
+            width // 2].
+    """
+
     def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim):
         super(Encoder, self).__init__()
 
@@ -223,7 +248,7 @@ class Encoder(nn.Module):
 
 
 class DecoderFlex(nn.Module):
-    def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim):
+    def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim, attention=False, attention_params=None):
         super(DecoderFlex, self).__init__()
 
         self._conv_1 =nn.Conv2d(
@@ -268,8 +293,28 @@ class DecoderFlex(nn.Module):
             padding=1
         )
 
+        self.attention = attention
+
+        if attention:
+            self.attention_layer = nn.MultiheadAttention(
+                embed_dim=hidden_dim[2],
+                num_heads=attention_params.NUM_HEADS,
+                dropout=attention_params.DROPOUT,
+                batch_first=True
+            )
+
     def forward(self, inputs):
+        
+        
         x = self._conv_1(inputs)
+
+        # shape of x is: [batch_size, hidden_dim, height, width]
+
+        if self.attention:
+            B, C, H, W = x.shape
+            x = x.permute(0, 2, 3, 1).view(B, H*W, C)
+            x = self.attention_layer(x, x, x)[0]
+            x = x.view(B, H, W, C).permute(0, 3, 1, 2)
 
         x = self._residual_stack(x)
 
@@ -282,7 +327,7 @@ class DecoderFlex(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim):
+    def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim, attention=False, attention_params=None):
         super(Decoder, self).__init__()
 
         self._conv_1 = nn.Conv2d(
@@ -313,8 +358,25 @@ class Decoder(nn.Module):
             padding=1
         )
 
+        self.attention = attention
+
+        if attention:
+            self.attention_layer = nn.MultiheadAttention(
+                embed_dim=hidden_dim,
+                num_heads=attention_params.NUM_HEADS,
+                dropout=attention_params.DROPOUT,
+                batch_first=True
+            )
+
     def forward(self, inputs):
         x = self._conv_1(inputs)
+
+        if self.attention:
+            B, C, H, W = x.shape
+            x = x.permute(0, 2, 3, 1).view(B, H*W, C)
+            x = self.attention_layer(x, x, x)[0]
+            x = x.view(B, H, W, C).permute(0, 3, 1, 2)
+            x = F.relu(x)
 
         x = self._residual_stack(x)
 
@@ -322,6 +384,36 @@ class Decoder(nn.Module):
         x = F.relu(x)
 
         return self._conv_trans_2(x)
+
+
+class EncoderPretrained(nn.Module):
+
+
+    def __init__(self, hparams):
+        super().__init__()
+
+        self.hparams = hparams
+
+        if hparams.NAME == "dino-v2-vit-s":
+            self.encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14', pretrained=True)
+        else:
+            raise ValueError(f"Unknown model name: {hparams.NAME}")
+        
+        self.avgpool = nn.AvgPool1d(kernel_size=hparams.KERNEL_SIZE, stride=hparams.STRIDE)
+
+    def forward(self, inputs):
+        """
+        Args:
+            inputs: Tensor of shape [batch_size, channels, height, width]
+
+        Returns:
+            Tensor of shape []
+        """
+
+        x = self.encoder(inputs)  # shape: [batch_size, channels, height, width]
+        x = self.avgpool(x.permute(2, 1))
+        x = x.permute(2, 1)
+        return x
 
 
 class VQVAE_V2(BaseVAE):
@@ -336,7 +428,11 @@ class VQVAE_V2(BaseVAE):
         num_residual_layers: int,
         residual_hidden_dim: int,
         decay: float,
-        data_variance: float
+        data_variance: float,
+        attention: bool = False,
+        attention_params: dict = None,
+        use_pretrained_encoder: bool = False,
+        pretrained_encoder_params: dict = None,
     ):
         super().__init__()
 
@@ -348,6 +444,10 @@ class VQVAE_V2(BaseVAE):
         self.num_residual_layers = num_residual_layers
         self.residual_hidden_dim = residual_hidden_dim
         self.data_variance = data_variance
+        self.attention = attention
+        self.attention_params = attention_params
+        self.use_pretrained_encoder = use_pretrained_encoder
+        self.pretrained_encoder_params = pretrained_encoder_params
 
         if isinstance(hidden_dim, int):
             EncoderM = Encoder
@@ -355,6 +455,9 @@ class VQVAE_V2(BaseVAE):
         elif isinstance(hidden_dim, list):
             EncoderM = EncoderFlex
             DecoderM = DecoderFlex
+
+        if use_pretrained_encoder:
+            EncoderM = EncoderPretrained(pretrained_encoder_params)
 
         self.encoder = EncoderM(
             in_channels=in_channels,
@@ -388,7 +491,9 @@ class VQVAE_V2(BaseVAE):
             in_channels=embedding_dim,
             hidden_dim=hidden_dim,
             num_residual_layers=num_residual_layers,
-            residual_hidden_dim=residual_hidden_dim
+            residual_hidden_dim=residual_hidden_dim,
+            attention=attention,
+            attention_params=attention_params
         )
 
     def encode(self, input: Tensor) -> List[Tensor]:

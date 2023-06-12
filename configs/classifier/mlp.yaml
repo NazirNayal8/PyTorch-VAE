@@ -1,0 +1,45 @@
+MODEL:
+  NAME: 'MLP'
+  INPUT_SIZE: 64  # size of codebook
+  HIDDEN_SIZES: [32, 32, 16, 16, 8]
+  NUM_CLASSES: 2
+  ACTIVATION: relu
+
+SOLVER:
+  LR: 0.0001
+  WEIGHT_DECAY: 0.0
+  BATCH_SIZE: 256
+  PRECISION: 32
+  MAX_EPOCHS: 60
+  NUM_WORKERS: 20
+
+DATA:
+  ROOT: "/home/nazir/datasets"
+  VQ_VAE_PATH: 'model_logs/codebook/CIFAR10/codebook_512_32/last.ckpt'
+  NAME: Codebook
+  MODE: indices # indices or vectors
+  OOD_MODE: corruption # random or corruption
+  OOD_PROB: 0.5
+  NORMALIZATION: custom
+  MEAN: [0.5, 0.5, 0.5]
+  STD: [1.0, 1.0, 1.0]
+  TRAIN_SIZE: 50000
+  MAX_TEST_LEN: 10000
+  CORRUPTION_PARAMS:
+    MODE: insertion # shuffle or insertion
+    SHUFFLE_LEN: 63
+    INSERTION_LEN: 32
+
+WANDB:
+  ACTIVATE: True
+  RUN_NAME: mlp_indices_512_32_corruption_insert_32_32-32-16-16-8dim_3_layers_norm_0.5prob_fixed_0wd_60ep # mlp_indices_512_32_corruption_shuffle_16_64dim_3_layers_normalized_0.5prob
+  PROJECT: classifier
+  NUM_LOG_IMGS: 40
+
+CKPT:
+  DIR_PATH: model_logs/classifier/mlp/
+  EVERY_N_EPOCHS: 50
+
+RANDOM_SEED: 2000
+
+  

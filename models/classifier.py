@@ -1,12 +1,8 @@
 import torch.nn as nn
 
 
-# write a an nn.Module for an MLP with a dynamic number of layer and several
-# choices for activation layers. Input size and hidden layers should also be parameters
-
 class MLP(nn.Module):
     """
-
     Parameters:
     -----------
     input_size: int
@@ -18,6 +14,7 @@ class MLP(nn.Module):
     activation: str
         Activation function to use between layers
     """
+
     def __init__(self, input_size, hidden_sizes, num_classes, activation='relu'):
         super().__init__()
         self.input_size = input_size
@@ -40,14 +37,14 @@ class MLP(nn.Module):
                     self.layers.append(nn.Sigmoid())
                 else:
                     raise NotImplementedError
-                
+
     def forward(self, x):
         for layer in self.layers:
             x = layer(x)
         return x
-    
+
     def __repr__(self):
         return f"MLP(input_size={self.input_size}, hidden_sizes={self.hidden_sizes}, output_size={self.output_size}, activation={self.activation})"
-    
+
     def __str__(self):
         return self.__repr__()

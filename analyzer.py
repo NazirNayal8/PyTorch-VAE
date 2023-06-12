@@ -28,6 +28,10 @@ parser = argparse.ArgumentParser(description="Yo it's Analyzer")
 
 parser.add_argument('--models_folder', type=str,
                     help="path to folder containing at least 1 folder. Inside each is a lightning ckpt")
+
+parser.add_argument('--model_name', type=str, default=None,
+                    help="name of a specific model to be processed. Must be a folder name inside models_folder")
+
 parser.add_argument('--ckpt_name', type=str, default='last',
                     help="name of lightning ckpt file")
 
@@ -411,6 +415,9 @@ def main():
         args.models_folder), "Models folder not here y u liar"
     model_names = os.listdir(args.models_folder)
 
+    if args.model_name is not None:
+        model_names = [args.model_name]
+
     # setup datasets
     id_dataset = edict(
         name=args.id_dataset,
@@ -454,24 +461,24 @@ def main():
         for ood_dataset in ood_datasets:
             ood_dataset.outputs = extract_outputs(model, ood_dataset)
 
-        # extract_reconstruction_error_density(
-        #     id_dataset=id_dataset,
-        #     ood_datasets=ood_datasets,
-        #     output_folder=output_folder
-        # )
+        extract_reconstruction_error_density(
+            id_dataset=id_dataset,
+            ood_datasets=ood_datasets,
+            output_folder=output_folder
+        )
 
-        # extract_tsne_with_kmeans(
-        #     id_dataset=id_dataset,
-        #     ood_datasets=ood_datasets,
-        #     output_folder=output_folder
-        # )
+        extract_tsne_with_kmeans(
+            id_dataset=id_dataset,
+            ood_datasets=ood_datasets,
+            output_folder=output_folder
+        )
 
-        # extract_codebook_distances(
-        #     k=args.codebook_k,
-        #     id_dataset=id_dataset,
-        #     ood_datasets=ood_datasets,
-        #     output_folder=output_folder
-        # )
+        extract_codebook_distances(
+            k=args.codebook_k,
+            id_dataset=id_dataset,
+            ood_datasets=ood_datasets,
+            output_folder=output_folder
+        )
 
         plot_perplexity_density(
             id_dataset=id_dataset,

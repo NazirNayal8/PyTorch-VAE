@@ -76,7 +76,7 @@ def compute_log_likelihood_v2(prior, x, y):
 
     B, C, H, W = codebook_outputs.quantized.shape
 
-    encoding_indices = codebook_outputs.encoding_indices[:, 0].long()
+    encoding_indices = codebook_outputs.encoding_indices[:, 0].long() 
     encoding_indices = encoding_indices.view(B, H, W)
 
     # get the prior
