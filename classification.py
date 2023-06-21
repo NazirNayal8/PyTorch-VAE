@@ -1,6 +1,7 @@
 import torch.nn.functional as F
 import pytorch_lightning as pl
 import inspect
+import copy
 
 from models import CLASSIFIERS
 from easydict import EasyDict as edict
@@ -30,11 +31,24 @@ class Classifier(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
 
+        config = self.preprocess_config(config)
+        
         self.save_hyperparameters(config)
 
         self.model = create_classifier(self.hparams.MODEL)
         self.accuracy = Accuracy(task='multiclass', num_classes=self.hparams.MODEL.NUM_CLASSES)
         self.accuracy_per_class = Accuracy(task='multiclass', num_classes=self.hparams.MODEL.NUM_CLASSES, average=None)
+
+    def preprocess_config(self, config):
+
+        config.MODEL.INPUT_SIZE = config.MODEL.NUM_TOKENS
+
+        if config.DATA.MODE == "one_hot":
+            config.MODEL.INPUT_SIZE = config.MODEL.CODEBOOK_SIZE * config.MODEL.NUM_TOKENS
+        elif config.DATA.MODE == "vectors":
+            config.MODEL.INPUT_SIZE = config.MODEL.EMBEDDING_DIM * config.MODEL.NUM_TOKENS
+
+        return config
 
     def forward(self, x):
         return self.model(x)

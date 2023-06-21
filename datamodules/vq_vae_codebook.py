@@ -23,7 +23,7 @@ DATAMODULES = edict(
 
 class CodebookDataset(Dataset):
 
-    def __init__(self, root, ood_mode, ood_prob, codebook_size, num_tokens, corruption_params):
+    def __init__(self, root, ood_mode, ood_prob, codebook_size, num_tokens, one_hot, corruption_params):
         super().__init__()
 
         self.root = root
@@ -31,7 +31,13 @@ class CodebookDataset(Dataset):
         self.ood_prob = ood_prob
         self.codebook_size = codebook_size
         self.num_tokens = num_tokens
+        self.one_hot = one_hot
         self.corruption_params = corruption_params
+
+        if not one_hot:
+            # read codebook.npy from root
+            codebook_root = '/'.join(root.split('/')[:-1])
+            self.codebook = np.load(os.path.join(codebook_root, "codebook.npy"))
 
         data = os.listdir(self.root)
         self.data = [os.path.join(self.root, d) for d in data]
@@ -58,28 +64,38 @@ class CodebookDataset(Dataset):
                 elif self.corruption_params.MODE == "insertion":
                     chosen_indices = np.random.choice(np.arange(self.num_tokens), size=self.corruption_params.INSERTION_LEN)
                     impure_tokens = np.random.randint(low=0, high=self.codebook_size, size=self.corruption_params.INSERTION_LEN)
-                    x[chosen_indices] = impure_tokens
+            
+                    if self.one_hot:
+                        x[chosen_indices] = impure_tokens
+                    else:
+                        x[chosen_indices] = self.codebook[impure_tokens]
                     y = 1
                 else:
                     raise NotImplementedError
         
-        x = torch.from_numpy(x).float() / self.num_tokens
-        # turn x into a one-hot vector
-        # x = F.one_hot(x.long(), num_classes=self.num_tokens)
-        y = torch.tensor(y).long()
+        x = torch.from_numpy(x).float().contiguous()
+    
+        if self.one_hot:
+            # turn x into a one-hot vector
+            x = F.one_hot(x.long(), num_classes=self.codebook_size)
 
+        x = x.view(-1).float()
+        y = torch.tensor(y).long()
+   
         return x, y
     
 
 class CodebookTestDataset(Dataset):
 
-    def __init__(self, id_root, ood_root, max_len, num_tokens):
+    def __init__(self, id_root, ood_root, max_len, num_tokens, codebook_size, one_hot):
         super().__init__()
 
         self.id_root = id_root
         self.ood_root = ood_root
         self.max_len = max_len
         self.num_tokens = num_tokens
+        self.codebook_size = codebook_size
+        self.one_hot = one_hot
 
         self.data = []
 
@@ -100,11 +116,12 @@ class CodebookTestDataset(Dataset):
             
             path, label = self.data[index]
             x = np.load(path)
-            x = torch.from_numpy(x).float() / self.num_tokens
+            x = torch.from_numpy(x).float().contiguous()
             
             # turn x into a one-hot vector
-            # x = F.one_hot(x.long(), num_classes=self.num_tokens)
-
+            if self.one_hot:
+                x = F.one_hot(x.long(), num_classes=self.codebook_size)
+            x = x.view(-1).float()
             y = torch.tensor(label).long()
     
             return x, y
@@ -126,10 +143,9 @@ class CodebookDataModule(pl.LightningDataModule):
 
         if os.path.exists(path):
             contents = os.listdir(path)
-            if len(contents) == len(dataset):
+            if len(contents) == len(dataset) or len(contents) == len(dataset) + 1:
                 print(f"Data already exists at {path}. Skipping data generation.")
                 return
-        
         # generate data
         print(f"Generating data at {path}...")
         os.makedirs(path, exist_ok=True)
@@ -138,8 +154,18 @@ class CodebookDataModule(pl.LightningDataModule):
             x, y = dataset[i]
             with torch.no_grad():
                 codebook_outputs = vq_vae.vq(vq_vae.pre_vq_conv(vq_vae.encoder(x.unsqueeze(0).to(device))))
-            encoding_indices = codebook_outputs.encoding_indices.squeeze().cpu().numpy()
-            np.save("{}/{}.npy".format(path, i), encoding_indices)
+            if self.config.DATA.MODE == "one_hot":
+            
+                encoding_indices = codebook_outputs.encoding_indices.squeeze().cpu().numpy()
+                np.save("{}/{}.npy".format(path, i), encoding_indices)
+            elif self.config.DATA.MODE == "vectors":
+                quantized = codebook_outputs.quantized.squeeze()
+                C, H, W = quantized.shape
+                quantized = quantized.view(C, H * W).permute(1, 0).cpu().numpy()
+                np.save("{}/{}.npy".format(path, i), quantized)
+                    
+            else:
+                raise ValueError(f"Invalid data mode {self.config.DATA.MODE}")
 
     def prepare_data(self):
         
@@ -153,7 +179,11 @@ class CodebookDataModule(pl.LightningDataModule):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         vq_vae.to(device)
 
+        codebook_path = os.path.join("./data", self.mode, vq_vae_hparams.WANDB.RUN_NAME)
+        os.makedirs(codebook_path, exist_ok=True)
+        np.save("{}/codebook.npy".format(codebook_path), vq_vae.vq._embedding.weight.detach().cpu().numpy())
         # path name to save data will be data/codebook/{mode}/{vq_vae_hparams.WANDB.NAME}/{dataset_name}
+
         # e.g. data/codebook/indices/codebook_512_32/CIFAR10 
         # if such a path exists and the number of files it contains is equal to the training size then
         # no need to generate the data
@@ -191,6 +221,8 @@ class CodebookDataModule(pl.LightningDataModule):
         self.ood_val_path = celeba_path
         self.codebook_size = vq_vae_hparams.MODEL.NUM_EMBEDDINGS
 
+        assert self.codebook_size == self.config.MODEL.CODEBOOK_SIZE, "Codebook size mismatch between VQ-VAE and Config File"
+
 
         
     def setup(self, stage=None):
@@ -200,7 +232,8 @@ class CodebookDataModule(pl.LightningDataModule):
             ood_mode=self.config.DATA.OOD_MODE,
             ood_prob=self.config.DATA.OOD_PROB,
             codebook_size=self.codebook_size,
-            num_tokens=self.config.MODEL.INPUT_SIZE,
+            num_tokens=self.config.MODEL.NUM_TOKENS,
+            one_hot=self.config.DATA.MODE=="one_hot",
             corruption_params=self.config.DATA.CORRUPTION_PARAMS,
         )
 
@@ -208,7 +241,9 @@ class CodebookDataModule(pl.LightningDataModule):
             id_root=self.id_val_path,
             ood_root=self.ood_val_path,
             max_len=self.config.DATA.MAX_TEST_LEN,
-            num_tokens=self.config.MODEL.INPUT_SIZE,
+            num_tokens=self.config.MODEL.NUM_TOKENS,
+            one_hot=self.config.DATA.MODE=="one_hot",
+            codebook_size=self.codebook_size
         )
 
     def train_dataloader(self):

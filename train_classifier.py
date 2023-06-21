@@ -50,7 +50,7 @@ def main(args):
         fast_dev_run=args.dev,
         accelerator="gpu",
         devices=-1,
-        log_every_n_steps=50,
+        log_every_n_steps=100,
         logger=logger,
         callbacks=callbacks,
         max_epochs=config.SOLVER.MAX_EPOCHS,
