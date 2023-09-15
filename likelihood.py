@@ -17,7 +17,7 @@ def process_input(x, y, device):
 
 
 @torch.no_grad()
-def compute_log_likelihood(prior, x, y):
+def compute_log_likelihood(prior, x, y, feature_extractor):
     # write a description for this function
     """
     Args:   
@@ -31,6 +31,9 @@ def compute_log_likelihood(prior, x, y):
 
     x, y = process_input(x, y, prior.device)
 
+    if feature_extractor is not None:
+        x = feature_extractor(x)
+
     vq_vae = prior.vq_vae
 
     codebook_outputs = vq_vae.vq(
@@ -42,7 +45,7 @@ def compute_log_likelihood(prior, x, y):
     encoding_indices = encoding_indices.view(B, H, W)
 
     # get the prior
-    logits = prior(encoding_indices, y)  # shape: B, C, H, W
+    logits = prior(encoding_indices, label=y)  # shape: B, C, H, W
     logits = logits.permute(0, 2, 3, 1).contiguous()  # shape: B, H, W, C
     log_probs = logits.log_softmax(dim=-1)
     B, H, W, C = log_probs.shape
@@ -80,7 +83,7 @@ def compute_log_likelihood_v2(prior, x, y):
     encoding_indices = encoding_indices.view(B, H, W)
 
     # get the prior
-    logits = prior(encoding_indices, y)  # shape: B, C, H, W
+    logits = prior(encoding_indices, label=y)  # shape: B, C, H, W
     logits = logits.permute(0, 2, 3, 1).contiguous()  # shape: B, H, W, C
 
     likelihood = F.cross_entropy(
@@ -89,7 +92,7 @@ def compute_log_likelihood_v2(prior, x, y):
     return likelihood
 
 
-def compute_dataset_log_likelihood(prior, dataset, max_samples=10000, arbitrary_cls=None):
+def compute_dataset_log_likelihood(prior, dataset, max_samples=10000, arbitrary_cls=None, feature_extractor=None):
 
     num_samples = min(len(dataset), max_samples)
     likelihoods = np.zeros(num_samples)
@@ -103,7 +106,8 @@ def compute_dataset_log_likelihood(prior, dataset, max_samples=10000, arbitrary_
             assert isinstance(
                 arbitrary_cls, int), "arbitrary_cls must be an integer"
             y = arbitrary_cls
-        likelihoods[i] = compute_log_likelihood(prior, x, y).cpu().item()
+        
+        likelihoods[i] = compute_log_likelihood(prior, x, y, feature_extractor=feature_extractor).cpu().item()
 
     return likelihoods
 

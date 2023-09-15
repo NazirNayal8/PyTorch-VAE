@@ -13,6 +13,7 @@ class CIFAR10DataModule(pl.LightningDataModule):
     IMAGENET_MEAN = [0.485, 0.456, 0.406]
     IMAGENET_STD = [0.229, 0.224, 0.225]
 
+
     def __init__(self, config):
         super().__init__()
 
@@ -28,13 +29,20 @@ class CIFAR10DataModule(pl.LightningDataModule):
         elif config.DATA.NORMALIZATION == 'custom':
             mean = config.DATA.MEAN
             std = config.DATA.STD
+        
+        if "IMG_SIZE" not in config.DATA:
+            H, W = 32, 32
+        else:
+            H, W = config.DATA.IMG_SIZE
 
         self.transform = T.Compose([
+            T.Resize((H, W)),
             T.ToTensor(),
             T.Normalize(mean, std)
         ])
 
         self.val_transform = T.Compose([
+            T.Resize((H, W)),
             T.ToTensor(),
             T.Normalize(mean, std)
         ])

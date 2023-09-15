@@ -92,7 +92,9 @@ class VAEXperiment(pl.LightningModule):
                      on_step=True, sync_dist=True)
 
     def on_validation_end(self) -> None:
-        self.sample_images()
+
+        if self.hparams.WANDB.LOG_RECONSTRUCTIONS:
+            self.sample_images()
 
     def sample_images(self):
         # Get sample reconstruction image

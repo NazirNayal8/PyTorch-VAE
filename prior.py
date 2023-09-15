@@ -39,9 +39,9 @@ class VQVAEPrior(pl.LightningModule):
         super(VQVAEPrior, self).__init__()
 
         vq_vae_ckpt = torch.load(config.VQ_VAE.CKPT_PATH)
-        vq_vae_hparams = edict(vq_vae_ckpt["hyper_parameters"])
-        self.vq_vae = VAEXperiment(vq_vae_hparams)
-        config.MODEL.INPUT_DIM = vq_vae_hparams.MODEL.NUM_EMBEDDINGS
+        self.vq_vae_hparams = edict(vq_vae_ckpt["hyper_parameters"])
+        self.vq_vae = VAEXperiment(self.vq_vae_hparams)
+        config.MODEL.INPUT_DIM = self.vq_vae_hparams.MODEL.NUM_EMBEDDINGS
 
         self.save_hyperparameters(config)
 
@@ -53,7 +53,7 @@ class VQVAEPrior(pl.LightningModule):
 
 
     def forward(self, input: Tensor, label: Tensor, **kwargs):
-        return self.model(input, label, **kwargs)
+        return self.model(input, label=label, **kwargs)
 
     def configure_optimizers(self):
 
@@ -78,7 +78,7 @@ class VQVAEPrior(pl.LightningModule):
         encoding_indices = encoding_indices.view(B, H, W)
 
         # get the prior
-        prior = self.model(encoding_indices, y)  # shape: B, C, H, W
+        prior = self.model(encoding_indices, label=y)  # shape: B, C, H, W
         prior = prior.permute(0, 2, 3, 1).contiguous()  # shape: B, H, W, C
 
         loss = F.cross_entropy(
@@ -101,7 +101,7 @@ class VQVAEPrior(pl.LightningModule):
         encoding_indices = encoding_indices.view(B, H, W)
 
         # get the prior
-        prior = self.model(encoding_indices, y)
+        prior = self.model(encoding_indices, label=y)
         prior = prior.permute(0, 2, 3, 1).contiguous()
 
         loss = F.cross_entropy(
@@ -114,6 +114,9 @@ class VQVAEPrior(pl.LightningModule):
 
     def on_validation_end(self) -> None:
         
+        if not self.hparams.WANDB.GENERATE_SAMPLES:
+            return
+
         samples = self.generate_samples(batch_size=40)
 
         num_samples = min(samples.shape[0], self.hparams.WANDB.NUM_LOG_IMGS)
@@ -144,7 +147,7 @@ class VQVAEPrior(pl.LightningModule):
         label = torch.arange(10).expand(4, 10).contiguous().view(-1)  # shape: (40,)
         label = label.long().cuda()
 
-        x_q = self.model.generate(label, shape, batch_size=batch_size)
+        x_q = self.model.generate(label=label, shape=shape, batch_size=batch_size)
         x_q = x_q.view(-1, 1)
 
         encodings = torch.zeros(

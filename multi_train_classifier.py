@@ -1,17 +1,16 @@
- 
-import os
 import argparse
+import os
+import wandb
+import torch
 
-from pathlib import Path
-from datamodules import DATAMODULES
-from pytorch_lightning.loggers.wandb import WandbLogger
-from pytorch_lightning import seed_everything
 from easydict import EasyDict as edict
-from utils import read_config
-from prior import VQVAEPrior
+from utils import read_config, update_from_wandb
+from pytorch_lightning.loggers.wandb import WandbLogger
+from pytorch_lightning import Trainer, seed_everything
+from classification import Classifier
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, ModelSummary
-from pytorch_lightning import Trainer
-
+from datamodules import DATAMODULES
+from functools import partial
 
 def main(args):
     
@@ -19,7 +18,7 @@ def main(args):
     config = read_config(args.filename)
     config = edict(config)
 
-    # create logger
+     # create logger
     if config.WANDB.ACTIVATE and not args.dev:
         logger = WandbLogger(
             name=config.WANDB.RUN_NAME,
@@ -29,14 +28,23 @@ def main(args):
     else:
         logger = None
 
-    # for reproducibility
     seed_everything(config.RANDOM_SEED)
 
-    # create lightning module
-    experiment = VQVAEPrior(config)
+    config = update_from_wandb(config, edict(logger.experiment.config))
+    
+    vq_vae_ckpt = torch.load(config.DATA.VQ_VAE_PATH)
+    vq_vae_hparams = edict(vq_vae_ckpt["hyper_parameters"])
+    
+    config.MODEL.CODEBOOK_SIZE = vq_vae_hparams.MODEL.NUM_EMBEDDINGS
+    config.MODEL.EMBEDDING_DIM = vq_vae_hparams.MODEL.EMBEDDING_DIM
+
+    config.WANDB.RUN_NAME = vq_vae_hparams.WANDB.RUN_NAME
+    logger.experiment.name = config.WANDB.RUN_NAME
+    
+    classifier = Classifier(config)
 
     # define the DataModule
-    datamodule = DATAMODULES[config.DATA.NAME](experiment.vq_vae_hparams)
+    datamodule = DATAMODULES[config.DATA.NAME](config)
 
     # define callbacks
     callbacks = [
@@ -44,9 +52,9 @@ def main(args):
         ModelCheckpoint(
             save_top_k=2,
             dirpath=os.path.join(config.CKPT.DIR_PATH, config.DATA.NAME, config.WANDB.RUN_NAME),
-            monitor="val_loss_epoch",
-            mode="min",
-            filename='{epoch}-{val_loss_epoch:.2f}',
+            monitor="val_acc_epoch",
+            mode="max",
+            filename='{epoch}-{val_acc_epoch:.2f}',
             save_last=True
         ),
     ]
@@ -56,32 +64,31 @@ def main(args):
         fast_dev_run=args.dev,
         accelerator="gpu",
         devices=-1,
-        log_every_n_steps=50,
+        log_every_n_steps=100,
         logger=logger,
         callbacks=callbacks,
         max_epochs=config.SOLVER.MAX_EPOCHS,
     )
 
-    # create necessary folders
-    Path(f"{config.WANDB.LOG_DIR}/samples/{config.WANDB.RUN_NAME}").mkdir(exist_ok=True, parents=True)
-    
     # start training
-    trainer.fit(experiment, datamodule=datamodule)
+    trainer.fit(classifier, datamodule=datamodule)
 
 if __name__ == "__main__":
 
 
     parser = argparse.ArgumentParser(
-        description='Prior Trainer')
+        description='Classifier Trainer')
     parser.add_argument('--config',  '-c',
                         dest="filename",
                         metavar='FILE',
                         help='path to the config file',
-                        default='configs/prior/gpt/dinov2_features.yaml')
-    
+                        default='configs/classifier/mlp_vectors.yaml')
+    parser.add_argument(
+        "--sweep_config", default="configs/classifier/sweep.yaml", help="wandb sweep config")
     parser.add_argument("--dev", action="store_true", help="Runs in Dev Mode")
 
     args = parser.parse_args()
 
-    main(args)
-
+    sweep_config = read_config(args.sweep_config)
+    sweep_id = wandb.sweep(sweep_config, project=sweep_config['project'])
+    wandb.agent(sweep_id=sweep_id, function=partial(main, args))

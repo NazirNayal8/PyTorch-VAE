@@ -11,6 +11,19 @@ def read_config(filename):
     return config
 
 
+def update_from_wandb(config, wandb_config):
+
+    for k, v in wandb_config.items():
+        if k not in config:
+            raise ValueError(f"Wandb Config has sth that you don't")
+        if isinstance(v, dict):
+            config[k] = update_from_wandb(config[k], wandb_config[k])
+        else:
+            config[k] = v
+
+    return config
+
+
 def data_loader(fn):
     """
     Decorator to handle the deprecation of data_loader from 0.7

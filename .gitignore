@@ -1,6 +1,9 @@
 
 Data/
 logs/
+.vscode/
+.idea/
+model_logs/
 
 VanillaVAE/version_0/
 

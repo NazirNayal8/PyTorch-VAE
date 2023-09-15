@@ -39,6 +39,7 @@ class MLP(nn.Module):
                     raise NotImplementedError
 
     def forward(self, x):
+        
         for layer in self.layers:
             x = layer(x)
         return x

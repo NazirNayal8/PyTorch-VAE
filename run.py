@@ -7,7 +7,7 @@ from experiment import VAEXperiment
 from pytorch_lightning import Trainer
 from pytorch_lightning.loggers.wandb import WandbLogger
 from pytorch_lightning import seed_everything
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, ModelSummary
 from easydict import EasyDict as edict
 from torchinfo import summary
 from utils import read_config
@@ -34,14 +34,16 @@ def main(args):
 
     # create lightning module
     experiment = VAEXperiment(config)
-    print(summary(experiment.model, input_size=(1, 3, 32, 32), depth=10))
+    H, W = config.DATA.IMG_SIZE
+    C = config.MODEL.IN_CHANNELS
+    print(summary(experiment.model, input_size=(1, C, H, W), depth=10))
     
     # define the DataModule
     datamodule = DATAMODULES[config.DATA.NAME](config)
 
     # define callbacks
     callbacks = [
-        LearningRateMonitor(),
+        LearningRateMonitor() if not args.dev else ModelSummary(),
         ModelCheckpoint(
             save_top_k=2,
             dirpath=os.path.join(config.CKPT.DIR_PATH, config.DATA.NAME, config.WANDB.RUN_NAME),
@@ -69,6 +71,7 @@ def main(args):
     Path(f"{config.WANDB.LOG_DIR}/Reconstructions/{config.WANDB.RUN_NAME}").mkdir(exist_ok=True, parents=True)
     
     # start training
+    # with torch.autograd.set_detect_anomaly(True):
     trainer.fit(experiment, datamodule=datamodule)
 
 

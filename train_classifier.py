@@ -36,10 +36,10 @@ def main(args):
     callbacks = [
         LearningRateMonitor() if not args.dev else ModelSummary(),
         ModelCheckpoint(
-            save_top_k=2,
+            save_top_k=6,
             dirpath=os.path.join(config.CKPT.DIR_PATH, config.DATA.NAME, config.WANDB.RUN_NAME),
-            monitor="val_loss_epoch",
-            mode="min",
+            monitor="val_acc_epoch",
+            mode="max",
             filename='{epoch}-{val_loss_epoch:.2f}',
             save_last=True
         ),

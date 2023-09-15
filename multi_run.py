@@ -14,6 +14,7 @@ from easydict import EasyDict as edict
 from torchinfo import summary
 from functools import partial
 
+
 def read_config(filename):
     with open(filename, 'r') as file:
         try:
@@ -22,6 +23,7 @@ def read_config(filename):
             print(exc)
 
     return config
+
 
 def update_from_wandb(config, wandb_config):
 
@@ -34,6 +36,7 @@ def update_from_wandb(config, wandb_config):
             config[k] = v
 
     return config
+
 
 def main(args):
 
@@ -52,8 +55,10 @@ def main(args):
         logger = None
 
     config = update_from_wandb(config, edict(logger.experiment.config))
+
     
-    config.WANDB.RUN_NAME += F"_{config.MODEL.NUM_EMBEDDINGS}_{config.MODEL.EMBEDDING_DIM}"
+
+    config.WANDB.RUN_NAME += F"_{config.MODEL.NUM_EMBEDDINGS}_{config.MODEL.EMBEDDING_DIM}_reslayers-{config.MODEL.NUM_RESIDUAL_LAYERS}_resdim-{config.MODEL.RESIDUAL_HIDDEN_DIM}_hiddendim{config.MODEL.HIDDEN_DIM}"
     logger.experiment.name = config.WANDB.RUN_NAME
     print("Config", config)
 
@@ -62,7 +67,7 @@ def main(args):
 
     # create lightning module
     experiment = VAEXperiment(config)
-    print(summary(experiment.model, input_size=(1, 3, 32, 32), depth=10))
+    # print(summary(experiment.model, input_size=(1, 3, 32, 32), depth=10))
 
     # define the DataModule
     datamodule = DATAMODULES[config.DATA.NAME](config)
@@ -72,7 +77,8 @@ def main(args):
         LearningRateMonitor(),
         ModelCheckpoint(
             save_top_k=2,
-            dirpath=os.path.join(config.CKPT.DIR_PATH, config.DATA.NAME, config.WANDB.RUN_NAME),
+            dirpath=os.path.join(config.CKPT.DIR_PATH,
+                                 config.DATA.NAME, config.WANDB.RUN_NAME),
             monitor="val_loss_epoch",
             mode="min",
             save_last=True
@@ -110,14 +116,14 @@ if __name__ == "__main__":
                         help='path to the config file',
                         default='configs/vq_vae/vq_vae_v2.yaml')
 
-    parser.add_argument("--sweep_config", default="configs/cifar10/sweep.yaml", help="wandb sweep config")
+    parser.add_argument(
+        "--sweep_config", default="configs/cifar10/sweep.yaml", help="wandb sweep config")
     parser.add_argument("--dev", action="store_true", help="Runs in Dev Mode")
-
 
     args = parser.parse_args()
 
     sweep_config = read_config(args.sweep_config)
-    
+
     sweep_id = wandb.sweep(sweep_config, project=sweep_config['project'])
     wandb.agent(sweep_id=sweep_id, function=partial(main, args))
     # main(args)

@@ -19,6 +19,8 @@ from tqdm import tqdm
 from sklearn.cluster import KMeans
 from sklearn.manifold import TSNE
 from likelihood import compute_dataset_log_likelihood
+from functools import partial
+
 
 # Extractable Plots
 # - Reconstruction Error Density
@@ -37,7 +39,7 @@ parser.add_argument('--ckpt_name', type=str, default='last',
 
 parser.add_argument('--id_dataset', type=str, default='CIFAR10', choices=['CIFAR10', 'CIFAR100', 'SVHN'],
                     help="name of ID dataset")
-parser.add_argument('--ood_datasets', nargs="*", type=str, default=["OMNIGLOT", "SVHN", "CELEBA"],
+parser.add_argument('--ood_datasets', nargs="*", type=str, default=["OMNIGLOT", "SVHN", "CELEBA", "CIFAR100"],
                     help="name of datasets to be considered as OOD")
 
 parser.add_argument("--output_folder", type=str, default="visualizations")
@@ -45,7 +47,7 @@ parser.add_argument("--output_folder", type=str, default="visualizations")
 parser.add_argument("--datasets_root", type=str, default="/home/nazir/datasets",
                     help="path to folder containing datasets")
 
-parser.add_argument("--data_norm", type=str, default='VQ_VAE', choices=["VQ_VAE"],
+parser.add_argument("--data_norm", type=str, default='VQ_VAE', choices=["VQ_VAE", "IMAGENET"],
                     help="""
                     choose the mean and std values used to normalize the datasets currently
                     available options are:
@@ -55,6 +57,12 @@ parser.add_argument("--max_samples", type=int, default=10000,
                     help="An upper limit on the number of samples to be considered from each dataset")
 parser.add_argument("--device", type=str, default="cuda",
                     help="either cpu or cuda")
+
+parser.add_argument("--feature_extractor", type=str, default=None, choices=["DINOV2"],
+                    help="name of feature extractor to be used before feeding the model to the VQ-VAE -> Prior")
+
+parser.add_argument("--img_size", type=int, default=32, 
+                    help="size of images in pixels")
 
 args = parser.parse_args()
 
@@ -74,25 +82,27 @@ def get_color():
 
 # Dataset Transformations
 DATA_NORM_METRICS = edict(
-    VQ_VAE=([0.5, 0.5, 0.5], [1.0, 1.0, 1.0])
+    VQ_VAE=([0.5, 0.5, 0.5], [1.0, 1.0, 1.0]),
+    IMAGENET=([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 )
 
 DATA_MEAN, DATA_STD = DATA_NORM_METRICS[args.data_norm]
 transform = T.Compose([
     T.ToTensor(),
+    T.Resize((args.img_size, args.img_size)),
     T.Normalize(mean=DATA_MEAN, std=DATA_STD)
 ])
 
 transform_omniglot = T.Compose([
     T.ToTensor(),
     T.Lambda(lambda x: x.repeat(3, 1, 1)),
-    T.Resize((32, 32)),
+    T.Resize((args.img_size, args.img_size)),
     T.Normalize(mean=DATA_MEAN, std=DATA_STD)
 ])
 
 transform_celeba = T.Compose([
     T.ToTensor(),
-    T.Resize((32, 32)),
+    T.Resize((args.img_size, args.img_size)),
     T.Normalize(mean=DATA_MEAN, std=DATA_STD)
 ])
 
@@ -186,16 +196,17 @@ def extract_outputs(model, dataset):
     return all_outputs
 
 
-def plot_log_likelihood_densities(prior, id_dataset, ood_datasets, output_folder):
+def plot_log_likelihood_densities(prior, id_dataset, ood_datasets, output_folder, feature_extractor):
 
     id_likelihoods = compute_dataset_log_likelihood(
-        prior, id_dataset.data, max_samples=args.max_samples)
+        prior, id_dataset.data, max_samples=args.max_samples, feature_extractor=feature_extractor)
     ood_likelihoods = [
         compute_dataset_log_likelihood(
             prior,
             ood_dataset.data,
             max_samples=args.max_samples,
-            arbitrary_cls=0
+            arbitrary_cls=0,
+            feature_extractor=feature_extractor
         ) for ood_dataset in ood_datasets
     ]
 
@@ -257,8 +268,31 @@ def main():
         output_folder = os.path.join(args.output_folder, model_name)
         Path(output_folder).mkdir(exist_ok=True, parents=True)
 
+        feature_extractor = None
+        if args.feature_extractor == "DINOV2":
+            dinov2_model = torch.hub.load(
+                'facebookresearch/dinov2', 'dinov2_vits14')
+            dinov2_model.eval()
+            dinov2_model.to(DEVICE)
+
+            def get_features(model, x):
+                with torch.no_grad():
+                    output = model.forward_features(x)
+  
+                features = output["x_prenorm"].squeeze(0)
+
+                N, C = features.shape
+                N = N - 1
+                N_sqrt = int(np.sqrt(N))
+                assert N_sqrt * N_sqrt == N, f"N is not a perfect square: {N}"
+                features = features[1:].permute(1, 0).view(C, N_sqrt, N_sqrt)
+
+                return features.unsqueeze(0)
+
+            feature_extractor = partial(get_features, dinov2_model)
+
         plot_log_likelihood_densities(
-            prior, id_dataset, ood_datasets, output_folder)
+            prior, id_dataset, ood_datasets, output_folder, feature_extractor=feature_extractor)
 
 
 if __name__ == "__main__":

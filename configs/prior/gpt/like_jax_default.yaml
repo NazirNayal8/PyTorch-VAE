@@ -1,0 +1,52 @@
+# following the config here: https://github.com/andylolu2/jax-vqvae-gpt
+
+MODEL:
+  NAME: 'GPT'
+  VOCAB_SIZE: 512  # size of codebook
+  BLOCK_SIZE: 64   # num tokens representing a sample
+  N_LAYER: 4 # default is 12
+  N_HEAD: 4
+  N_EMBD: 64 # hidden embedding size
+  EMBD_PDROP: 0.1
+  RESID_PDROP: 0.0
+  ATTN_PDROP: 0.0
+  N_UNMASKED: 0
+  START_TOKEN_MODE: label
+  NUM_CLASSES: 10
+
+SOLVER:
+  LR: 3.0e-4
+  WEIGHT_DECAY: 1.0e-5
+  BATCH_SIZE: 64
+  PRECISION: 32
+  MAX_EPOCHS: 60
+  NUM_WORKERS: 20
+
+VQ_VAE: 
+  CKPT_PATH: 'model_logs/codebook/CIFAR10/codebook_512_32/best.ckpt'
+
+DATA:
+  ROOT: "/home/nazir/datasets"
+  NAME: CIFAR10
+  NORMALIZATION: custom
+  IMG_SIZE: [32, 32]
+  MEAN: [0.5, 0.5, 0.5]
+  STD: [1.0, 1.0, 1.0]
+  NUM_CLASSES: 10
+  CLS_SUBSET: null
+
+WANDB:
+  ACTIVATE: True
+  RUN_NAME: gpt_codebook_512_32_label_conditioned_4layers_64hidden_0.1embd_drop_jax_like
+  PROJECT: prior_pixel_cnn
+  NUM_LOG_IMGS: 40
+  LOG_DIR: logs/prior_gpt/
+  GENERATE_SAMPLES: True
+
+CKPT:
+  DIR_PATH: model_logs/prior/gpt/
+  EVERY_N_EPOCHS: 50
+
+RANDOM_SEED: 2000
+
+  

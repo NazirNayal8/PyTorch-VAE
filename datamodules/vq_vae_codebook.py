@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn.functional as F
 import pytorch_lightning as pl
+import torchvision.transforms as T
 import numpy as np
 
 from easydict import EasyDict as edict
@@ -11,14 +12,16 @@ import sys
 sys.path.append("../")
 sys.path.append("../../")
 from experiment import VAEXperiment
-from .datasets import get_datasets
+from .datasets import get_datasets, DATA_NORM_METRICS
 
 from .cifar import CIFAR10DataModule
 from .svhn import SVHNDataModule
+from .pretrained_features import DINOV2FeaturesDataModule, FeatureDataset
 
 DATAMODULES = edict(
     CIFAR10=CIFAR10DataModule,
     SVHN=SVHNDataModule,
+    DINOV2Features=DINOV2FeaturesDataModule
 )
 
 class CodebookDataset(Dataset):
@@ -123,7 +126,7 @@ class CodebookTestDataset(Dataset):
                 x = F.one_hot(x.long(), num_classes=self.codebook_size)
             x = x.view(-1).float()
             y = torch.tensor(label).long()
-    
+               
             return x, y
 
 
@@ -152,6 +155,16 @@ class CodebookDataModule(pl.LightningDataModule):
 
         for i in tqdm(range(len(dataset))):
             x, y = dataset[i]
+
+            if i % 2000 == 0:
+                print("Sanity Check...")
+                dataset_name = path.split('/')[-1] 
+                print(dataset_name, x.shape)
+            
+            if "USE_PRETRAINED_ENCODER" in self.config.MODEL and self.config.MODEL.USE_PRETRAINED_ENCODER:
+                H, W = self.config.MODEL.PRETRAINED_ENCODER_PARAMS.IMG_SIZE
+                x = F.interpolate(x.unsqueeze(0), size=(H, W), mode="bilinear").squeeze(0)
+
             with torch.no_grad():
                 codebook_outputs = vq_vae.vq(vq_vae.pre_vq_conv(vq_vae.encoder(x.unsqueeze(0).to(device))))
             if self.config.DATA.MODE == "one_hot":
@@ -189,36 +202,51 @@ class CodebookDataModule(pl.LightningDataModule):
         # no need to generate the data
     
         self.data_path = os.path.join("./data", self.mode, vq_vae_hparams.WANDB.RUN_NAME, vq_vae_hparams.DATA.NAME)
+        self.id_val_path = os.path.join("./data", self.mode, vq_vae_hparams.WANDB.RUN_NAME, f"{vq_vae_hparams.DATA.NAME}_test_id")
         datamodule = DATAMODULES[vq_vae_hparams.DATA.NAME](vq_vae_hparams)
+        datamodule.prepare_data()
         datamodule.setup()
         train_dataset = datamodule.train_dataset
+        test_dataset = datamodule.val_dataset
 
         # get the indices of the codebook
         self.generate_and_save_indices(vq_vae, train_dataset, self.data_path, device)
-        
-        DATASETS = get_datasets(self.config.DATA.ROOT)
-        # SVHN
-        svhn_dataset = DATASETS.SVHN
-        svhn_path = os.path.join("./data", self.mode, vq_vae_hparams.WANDB.RUN_NAME, "SVHN")
-        self.generate_and_save_indices(vq_vae, svhn_dataset, svhn_path, device)
+        self.generate_and_save_indices(vq_vae, test_dataset, self.id_val_path, device)
+        # OoD Dataset
 
-        # CelebA
-        celeba_dataset = DATASETS.CELEBA
-        celeba_path = os.path.join("./data", self.mode, vq_vae_hparams.WANDB.RUN_NAME, "CelebA")
-        self.generate_and_save_indices(vq_vae, celeba_dataset, celeba_path, device)
+        transforms = None
+        if vq_vae_hparams.DATA.NAME == "DINOV2Features":
+            transforms = edict({
+                    self.config.DATA.OOD_DATASET: T.Compose([
+                        T.ToTensor(),
+                        T.Normalize(
+                            mean=DATA_NORM_METRICS["IMAGENET"][0],
+                            std=DATA_NORM_METRICS["IMAGENET"][1]
+                        ),
+                        T.Resize(vq_vae_hparams.DATA.IMG_SIZE),
+                    ])
+            })
 
-        # Omniglot
-        omniglot_dataset = DATASETS.OMNIGLOT
-        omniglot_path = os.path.join("./data", self.mode, vq_vae_hparams.WANDB.RUN_NAME, "Omniglot")
-        self.generate_and_save_indices(vq_vae, omniglot_dataset, omniglot_path, device)
+        DATASETS = get_datasets(self.config.DATA.ROOT, transforms)
 
-        # CIFAR10
-        cifar10_dataset = DATASETS.CIFAR10
-        cifar10_path = os.path.join("./data", self.mode, vq_vae_hparams.WANDB.RUN_NAME, "CIFAR10_test")
-        self.generate_and_save_indices(vq_vae, cifar10_dataset, cifar10_path, device)
+        ood_dataset = DATASETS[self.config.DATA.OOD_DATASET]
 
-        self.id_val_path = cifar10_path
-        self.ood_val_path = celeba_path
+        if vq_vae_hparams.DATA.NAME == "DINOV2Features":
+           
+            ood_dataset_dino_path = os.path.join(
+            "./data/dinov2", self.config.DATA.OOD_DATASET, 'test')
+            dinov2_model = torch.hub.load(
+            'facebookresearch/dinov2', vq_vae_hparams.MODEL.VARIATION, pretrained=True)
+            dinov2_model.to(device)
+            dinov2_model.eval()
+           
+            datamodule.generate_and_save_features(dinov2_model, ood_dataset, ood_dataset_dino_path, device)
+            ood_dataset = FeatureDataset(root=ood_dataset_dino_path)
+
+        ood_dataset_path = os.path.join("./data", self.mode, vq_vae_hparams.WANDB.RUN_NAME, self.config.DATA.OOD_DATASET)
+        self.generate_and_save_indices(vq_vae, ood_dataset, ood_dataset_path, device)
+
+        self.ood_val_path = ood_dataset_path
         self.codebook_size = vq_vae_hparams.MODEL.NUM_EMBEDDINGS
 
         assert self.codebook_size == self.config.MODEL.CODEBOOK_SIZE, "Codebook size mismatch between VQ-VAE and Config File"

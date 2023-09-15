@@ -31,6 +31,7 @@ WANDB:
   PROJECT: prior_pixel_cnn
   NUM_LOG_IMGS: 40
   LOG_DIR: logs/prior_pixel_cnn/
+  GENERATE_SAMPLES: False
 
 CKPT:
   DIR_PATH: model_logs/prior/pixel_cnn/

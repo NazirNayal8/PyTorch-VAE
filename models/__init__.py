@@ -24,6 +24,7 @@ from .vae.betatc_vae import *
 from .vae.dip_vae import *
 
 from .pixel_cnn import GatedPixelCNN
+from .mingpt import GPT
 from .classifier import MLP
 
 
@@ -59,7 +60,8 @@ vae_models = {
 }
 
 PRIORS = edict(
-    PixelCNN=GatedPixelCNN
+    PixelCNN=GatedPixelCNN,
+    GPT=GPT,
 )
 
 CLASSIFIERS = edict(

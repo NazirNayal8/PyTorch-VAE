@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from models import BaseVAE
 from torch import nn
 from torch.nn import functional as F
@@ -82,12 +83,14 @@ class VectorQuantizerEMA(nn.Module):
         loss = self._beta * e_latent_loss
 
         # Straight Through Estimator
-        quantized = inputs + (quantized - inputs).detach()  # shape of quantized is [B, H, W, C]
-        avg_probs = torch.mean(encodings, dim=0) # shape of the avg_probs tensor is [K]
-        
+        # shape of quantized is [B, H, W, C]
+        quantized = inputs + (quantized - inputs).detach()
+        # shape of the avg_probs tensor is [K]
+        avg_probs = torch.mean(encodings, dim=0)
+
         # shape of the perplexity tensor is []
         perplexity = torch.exp(-torch.sum(avg_probs *
-                               torch.log(avg_probs + 1e-10)))  
+                               torch.log(avg_probs + 1e-10)))
 
         # convert quantized from BHWC -> BCHW
         return edict(
@@ -111,10 +114,10 @@ class ResidualLayer(nn.Module):
         super(ResidualLayer, self).__init__()
         # NOTE: In reference code a ReLU is added before first CONV
         self.resblock = nn.Sequential(
-            nn.ReLU(True),
+            nn.ReLU(),
             nn.Conv2d(in_channels, num_hiddens,
                       kernel_size=3, padding=1, bias=False),
-            nn.ReLU(True),
+            nn.ReLU(),
             nn.Conv2d(num_hiddens, out_channels,
                       kernel_size=1, bias=False)
         )
@@ -251,14 +254,14 @@ class DecoderFlex(nn.Module):
     def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim, attention=False, attention_params=None):
         super(DecoderFlex, self).__init__()
 
-        self._conv_1 =nn.Conv2d(
+        self._conv_1 = nn.Conv2d(
             in_channels=in_channels,
             out_channels=hidden_dim[2],
             kernel_size=3,
             stride=1,
             padding=1
         )
-        
+
         self._residual_stack = ResidualStack(
             in_channels=hidden_dim[2],
             hidden_dim=hidden_dim[2],
@@ -267,7 +270,7 @@ class DecoderFlex(nn.Module):
         )
 
         self._conv_trans_0 = nn.Sequential(
-             nn.ConvTranspose2d(
+            nn.ConvTranspose2d(
                 in_channels=hidden_dim[2],
                 out_channels=hidden_dim[1],
                 kernel_size=4,
@@ -276,7 +279,7 @@ class DecoderFlex(nn.Module):
             ),
             nn.ReLU(),
         )
-        
+
         self._conv_trans_1 = nn.ConvTranspose2d(
             in_channels=hidden_dim[1],
             out_channels=hidden_dim[0],
@@ -304,8 +307,7 @@ class DecoderFlex(nn.Module):
             )
 
     def forward(self, inputs):
-        
-        
+
         x = self._conv_1(inputs)
 
         # shape of x is: [batch_size, hidden_dim, height, width]
@@ -327,8 +329,10 @@ class DecoderFlex(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim, attention=False, attention_params=None):
+    def __init__(self, in_channels, out_channels, hidden_dim, num_residual_layers, residual_hidden_dim, attention=False, attention_params=None, custom_resize=None):
         super(Decoder, self).__init__()
+
+        self.custom_resize = custom_resize
 
         self._conv_1 = nn.Conv2d(
             in_channels=in_channels,
@@ -350,9 +354,39 @@ class Decoder(nn.Module):
             stride=2,
             padding=1
         )
+
+        # if self.custom_resize is not None:
+
+        #     self._extra_conv = nn.Sequential(
+        #         nn.ConvTranspose2d(
+        #                 in_channels=hidden_dim // 2,
+        #                 out_channels=hidden_dim // 2,
+        #                 kernel_size=4,
+        #                 stride=2,
+        #                 padding=1
+        #         ),
+        #         nn.ReLU(),
+        #         nn.ConvTranspose2d(
+        #             in_channels= hidden_dim // 2,
+        #             out_channels=hidden_dim // 2,
+        #             kernel_size=4,
+        #             stride=2,
+        #             padding=1
+        #         ),
+        #         nn.ReLU(),
+        #         nn.ConvTranspose2d(
+        #             in_channels= hidden_dim // 2,
+        #             out_channels=hidden_dim // 2,
+        #             kernel_size=4,
+        #             stride=2,
+        #             padding=1
+        #         ),
+        #         nn.ReLU(),
+        #     )
+
         self._conv_trans_2 = nn.ConvTranspose2d(
             in_channels=hidden_dim//2,
-            out_channels=3,
+            out_channels=out_channels,
             kernel_size=4,
             stride=2,
             padding=1
@@ -383,23 +417,34 @@ class Decoder(nn.Module):
         x = self._conv_trans_1(x)
         x = F.relu(x)
 
+        # if self.custom_resize is not None:
+        #     x = self._extra_conv(x)
+
         return self._conv_trans_2(x)
 
 
-class EncoderPretrained(nn.Module):
-
+class EncoderDINOV2(nn.Module):
 
     def __init__(self, hparams):
         super().__init__()
 
         self.hparams = hparams
 
-        if hparams.NAME == "dino-v2-vit-s":
-            self.encoder = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14', pretrained=True)
+        assert hparams.FEATURES_TYPE in [
+            "x_norm_clstoken", "x_prenorm", "x_norm_patchtokens"]
+
+        if hparams.NAME == "dinov2_vits14":
+            self.encoder = torch.hub.load(
+                'facebookresearch/dinov2', hparams.NAME, pretrained=True)
         else:
             raise ValueError(f"Unknown model name: {hparams.NAME}")
-        
-        self.avgpool = nn.AvgPool1d(kernel_size=hparams.KERNEL_SIZE, stride=hparams.STRIDE)
+
+        self.avgpool = nn.AvgPool1d(
+            kernel_size=hparams.KERNEL_SIZE, stride=hparams.STRIDE)
+
+        # freeze the encoder
+        for param in self.encoder.parameters():
+            param.requires_grad = False
 
     def forward(self, inputs):
         """
@@ -409,11 +454,109 @@ class EncoderPretrained(nn.Module):
         Returns:
             Tensor of shape []
         """
+        with torch.no_grad():
+            x = self.encoder.forward_features(
+                inputs)[self.hparams.FEATURES_TYPE]
+            if self.hparams.FEATURES_TYPE in ["x_prenorm", "x_norm_patchtokens"]:
+                x = self.avgpool(x.permute(0, 2, 1))
+                x = x.permute(0, 2, 1)
+        B, N, C = x.shape
+        N_sqrt = int(np.sqrt(N))
+        assert N_sqrt * N_sqrt == N, "Num of patches must be a perfect square"
 
-        x = self.encoder(inputs)  # shape: [batch_size, channels, height, width]
-        x = self.avgpool(x.permute(2, 1))
-        x = x.permute(2, 1)
+        x = x.view(B, N_sqrt, N_sqrt, C).permute(0, 3, 1, 2)
+
         return x
+
+
+class FeatureEncoder(nn.Module):
+    """
+    A class that takes a feature map of dimensions [16, 16, 384], processes it using convolutional networks so that it becomes
+    a map of dimension [4, 4, 64], using convolutional networks, ReLU activation functions and residual blocks.
+    """
+
+    def __init__(self, in_channels, hidden_dim, num_residual_layers, residual_hidden_dim):
+        super().__init__()
+
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=hidden_dim,
+                kernel_size=3,
+                stride=2,
+                padding=1
+            ),
+            nn.ReLU(),
+            nn.Conv2d(
+                in_channels=hidden_dim,
+                out_channels=hidden_dim,
+                kernel_size=3,
+                stride=2,
+                padding=1
+            ),
+            nn.ReLU(),
+        )
+
+        self._residual_stack = ResidualStack(
+            in_channels=hidden_dim,
+            hidden_dim=hidden_dim,
+            num_residual_layers=num_residual_layers,
+            residual_hidden_dim=residual_hidden_dim
+        )
+
+    def forward(self, inputs):
+        x = self.conv_layers(inputs)
+        
+        x = self._residual_stack(x)
+        
+        return x
+
+
+class FeatureDecoder(nn.Module):
+    """
+    Decodes the output of FeatureEncoder class to the original image dimensions.
+    """
+
+    def __init__(self, in_channels, out_channels, hidden_dim, num_residual_layers, residual_hidden_dim, attention=False, attention_params=None, custom_resize=None):
+        super().__init__()
+
+        self._conv_1 = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=hidden_dim,
+            kernel_size=3,
+            stride=1,
+            padding=1
+        )
+
+        self._residual_stack = ResidualStack(
+            in_channels=hidden_dim,
+            hidden_dim=hidden_dim,
+            num_residual_layers=num_residual_layers,
+            residual_hidden_dim=residual_hidden_dim
+        )
+
+        self.deconv_layers = nn.Sequential(
+            nn.ConvTranspose2d(
+                in_channels=hidden_dim,
+                out_channels=hidden_dim,
+                kernel_size=4,
+                stride=2,
+                padding=1
+            ),
+            nn.ReLU(),
+            nn.ConvTranspose2d(
+                in_channels=hidden_dim,
+                out_channels=out_channels,
+                kernel_size=4,
+                stride=2,
+                padding=1
+            ),
+        )
+
+    def forward(self, inputs):
+        x = self._conv_1(inputs)
+        x = self._residual_stack(x)
+        return self.deconv_layers(x)
 
 
 class VQVAE_V2(BaseVAE):
@@ -432,6 +575,7 @@ class VQVAE_V2(BaseVAE):
         attention: bool = False,
         attention_params: dict = None,
         use_pretrained_encoder: bool = False,
+        use_feature_encoder: bool = False,
         pretrained_encoder_params: dict = None,
     ):
         super().__init__()
@@ -448,26 +592,35 @@ class VQVAE_V2(BaseVAE):
         self.attention_params = attention_params
         self.use_pretrained_encoder = use_pretrained_encoder
         self.pretrained_encoder_params = pretrained_encoder_params
+        self.use_feature_encoder = use_feature_encoder
 
-        if isinstance(hidden_dim, int):
-            EncoderM = Encoder
-            DecoderM = Decoder
-        elif isinstance(hidden_dim, list):
-            EncoderM = EncoderFlex
-            DecoderM = DecoderFlex
+        if use_feature_encoder:
+            EncoderM = FeatureEncoder
+            DecoderM = FeatureDecoder
+        else:
+            if isinstance(hidden_dim, int):
+                EncoderM = Encoder
+                DecoderM = Decoder
+            elif isinstance(hidden_dim, list):
+                EncoderM = EncoderFlex
+                DecoderM = DecoderFlex
 
         if use_pretrained_encoder:
-            EncoderM = EncoderPretrained(pretrained_encoder_params)
+            self.encoder = EncoderDINOV2(pretrained_encoder_params)
+        else:
+            self.encoder = EncoderM(
+                in_channels=in_channels,
+                hidden_dim=hidden_dim,
+                num_residual_layers=num_residual_layers,
+                residual_hidden_dim=residual_hidden_dim
+            )
 
-        self.encoder = EncoderM(
-            in_channels=in_channels,
-            hidden_dim=hidden_dim,
-            num_residual_layers=num_residual_layers,
-            residual_hidden_dim=residual_hidden_dim
-        )
-
+        pre_vq_hidden_dim = hidden_dim if isinstance(
+            hidden_dim, int) else hidden_dim[-1]
+        if use_pretrained_encoder:
+            pre_vq_hidden_dim = pretrained_encoder_params.FEATURE_DIM
         self.pre_vq_conv = nn.Conv2d(
-            in_channels=hidden_dim if isinstance(hidden_dim, int) else hidden_dim[-1],
+            in_channels=pre_vq_hidden_dim,
             out_channels=embedding_dim,
             kernel_size=1,
             stride=1
@@ -489,11 +642,13 @@ class VQVAE_V2(BaseVAE):
 
         self.decoder = DecoderM(
             in_channels=embedding_dim,
+            out_channels=in_channels,
             hidden_dim=hidden_dim,
             num_residual_layers=num_residual_layers,
             residual_hidden_dim=residual_hidden_dim,
             attention=attention,
-            attention_params=attention_params
+            attention_params=attention_params,
+            custom_resize=56 if use_pretrained_encoder else None
         )
 
     def encode(self, input: Tensor) -> List[Tensor]:
@@ -505,10 +660,17 @@ class VQVAE_V2(BaseVAE):
 
         result = self.decoder(z)
         return result
-
+    
     def forward(self, x: Tensor, **kwargs) -> List[Tensor]:
+        
+        if self.use_pretrained_encoder:
+            H, W = self.pretrained_encoder_params.IMG_SIZE
+            x_reshaped = F.interpolate(
+                x, size=(H, W), mode="bilinear", align_corners=False)
+        else:
+            x_reshaped = x
 
-        encoding = self.encode(x)[0]
+        encoding = self.encode(x_reshaped)[0]
 
         encoding = self.pre_vq_conv(encoding)
 

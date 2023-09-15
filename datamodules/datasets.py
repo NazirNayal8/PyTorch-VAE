@@ -6,7 +6,8 @@ from copy import deepcopy
 
 # Dataset Transformations
 DATA_NORM_METRICS = edict(
-    VQ_VAE=([0.5, 0.5, 0.5], [1.0, 1.0, 1.0])
+    VQ_VAE=([0.5, 0.5, 0.5], [1.0, 1.0, 1.0]),
+    IMAGENET=([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 )
 
 DATA_MEAN, DATA_STD = DATA_NORM_METRICS["VQ_VAE"]
@@ -39,6 +40,8 @@ def get_datasets(root, transforms=None):
         T.update(transforms)
 
     DATASETS = edict(
+        CIFAR10_TRAIN=CIFAR10(root=root, train=True, 
+                        download=True, transform=T.CIFAR10),
         CIFAR10=CIFAR10(root=root, train=False,
                         download=True, transform=T.CIFAR10),
         CIFAR100=CIFAR100(root=root, train=False,

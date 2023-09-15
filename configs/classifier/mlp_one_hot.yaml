@@ -1,11 +1,11 @@
 MODEL:
   NAME: 'MLP'
-  NUM_TOKENS: 64 # number of tokens that represent an image
+  NUM_TOKENS: 16 # number of tokens that represent an image
   HIDDEN_SIZES: [64, 128, 256]
   NUM_CLASSES: 2
   ACTIVATION: relu
-  CODEBOOK_SIZE: 64
-  EMBEDDING_DIM: 32
+  CODEBOOK_SIZE: 128
+  EMBEDDING_DIM: 128
 
 SOLVER:
   LR: 0.0001
@@ -17,8 +17,9 @@ SOLVER:
 
 DATA:
   ROOT: "/home/nazir/datasets"
-  VQ_VAE_PATH: 'model_logs/codebook/CIFAR10/codebook_64_32/last.ckpt'
+  VQ_VAE_PATH: 'model_logs/dinov2_features/DINOV2Features/dinov2_features_128_128_reslayers-8_resdim-128_hiddendim256/last.ckpt'
   NAME: Codebook
+  OOD_DATASET: CELEBA
   MODE: one_hot # indices or vectors
   OOD_MODE: corruption # random or corruption
   OOD_PROB: 0.5
@@ -30,11 +31,11 @@ DATA:
   CORRUPTION_PARAMS:
     MODE: insertion # shuffle or insertion
     SHUFFLE_LEN: 16
-    INSERTION_LEN: 16
+    INSERTION_LEN: 15
 
 WANDB:
   ACTIVATE: True
-  RUN_NAME: mlp_one_hot_64_32_insert_16len_layers_64_128_256 # mlp_indices_512_32_corruption_shuffle_16_64dim_3_layers_normalized_0.5prob
+  RUN_NAME: mlp_one_hot_dinov2_features_128_128_reslayers-8_resdim-128_hiddendim256_insertion_15
   PROJECT: classifier
   NUM_LOG_IMGS: 40
 
