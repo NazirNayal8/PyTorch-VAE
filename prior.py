@@ -11,7 +11,7 @@ from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from pytorch_lightning.callbacks import BaseFinetuning
 from typing import List, Union
 from torch import Tensor
-from models import PRIORS, vae_models
+from models import PRIORS
 from easydict import EasyDict as edict
 from torch import optim
 from experiment import VAEXperiment
